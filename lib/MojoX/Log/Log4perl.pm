@@ -31,12 +31,13 @@ sub format {
 # Mojo::Log (Mojolicious 8.23) was updated to add method context which 
 # needs to exist here or we die
 sub context {
-    my ($self) = @_;
-    return $self;
+    my ($self, $str) = @_;
+    my $new = ref($self)->new(undef, undef, $str);
+    return $new;
 }
 
 sub new {
-	my ($class, $conf_file, $watch) = (@_);
+	my ($class, $conf_file, $watch, $context) = (@_);
 
 	$conf_file ||= {
 		'log4perl.rootLogger' => 'DEBUG, SCREEN',
@@ -45,15 +46,20 @@ sub new {
 		'log4perl.appender.SCREEN.layout.ConversionPattern' => '[%d] [mojo] [%p] %m%n',
 	};
 
-	if ($watch) {
-		Log::Log4perl::init_and_watch($conf_file, $watch);
-	}
-	else {
-		Log::Log4perl->init_once($conf_file);
+	if(!Log::Log4perl->initialized()){
+		if ($watch) {
+			Log::Log4perl::init_and_watch($conf_file, $watch);
+		}
+		else {
+			Log::Log4perl->init_once($conf_file);
+		}
 	}
 
 	my $self = $class->SUPER::new();
 	$self->on( message => \&_message );
+
+	$self->{context} = $context if $context;
+
 	return $self;
 }
 
@@ -89,7 +95,8 @@ sub _message {
 	my $depth = 3;
 	local $Log::Log4perl::caller_depth
       = $Log::Log4perl::caller_depth + $depth;
-
+	my $context = $self->{context};
+	Log::Log4perl::MDC->put("request_id", $context) if $context;
 	if ($self->_get_logger( $depth )->$level( @message )) {
 		my $history = $self->history;
 		my $max     = $self->max_history_size;
@@ -97,6 +104,7 @@ sub _message {
 		splice (@$history, 0, scalar @$history - $max)
 		    if scalar @$history > $max;
 	}
+	Log::Log4perl::MDC->put('request_id', undef) if $context;
 	return $self;
 }
 
